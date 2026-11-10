@@ -1,0 +1,601 @@
+Last login: Tue Nov 10 21:43:19 on ttys001
+rohitkumardubey@Rohits-MacBook-Air-9 ~ % mkdir AutomobileFuelPrediction
+cd AutomobileFuelPrediction
+rohitkumardubey@Rohits-MacBook-Air-9 AutomobileFuelPrediction % spark-shell --master local[*]
+zsh: no matches found: local[*]
+rohitkumardubey@Rohits-MacBook-Air-9 AutomobileFuelPrediction % spark-shell
+WARNING: Using incubator modules: jdk.incubator.vector
+Using Spark's default log4j profile: org/apache/spark/log4j2-defaults.properties
+26/11/10 21:45:46 WARN Utils: Your hostname, Rohits-MacBook-Air-9.local, resolves to a loopback address: 127.0.0.1; using 192.0.0.2 instead (on interface en0)
+26/11/10 21:45:46 WARN Utils: Set SPARK_LOCAL_IP if you need to bind to another address
+Using Spark's default log4j profile: org/apache/spark/log4j2-defaults.properties
+Setting default log level to "WARN".
+To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).
+Welcome to
+      ____              __
+     / __/__  ___ _____/ /__
+    _\ \/ _ \/ _ `/ __/  '_/
+   /___/ .__/\_,_/_/ /_/\_\   version 4.2.0
+      /_/
+         
+Using Scala version 2.13.18 (OpenJDK 64-Bit Server VM, Java 21.0.11)
+Type in expressions to have them evaluated.
+Type :help for more information.
+26/11/10 21:45:49 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable
+Spark context Web UI available at http://192.0.0.2:4040
+Spark context available as 'sc' (master = local[*], app id = local-1794327350688).
+Spark session available as 'spark'.
+
+scala> import org.apache.spark.sql.functions._
+     | import org.apache.spark.sql.types._
+     | import org.apache.spark.sql.expressions.Window
+     | 
+     | import org.apache.spark.ml.Pipeline
+     | import org.apache.spark.ml.feature._
+     | import org.apache.spark.ml.regression._
+     | import org.apache.spark.ml.evaluation.RegressionEvaluator
+     | import org.apache.spark.ml.tuning._
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.ml.Pipeline
+import org.apache.spark.ml.feature._
+import org.apache.spark.ml.regression._
+import org.apache.spark.ml.evaluation.RegressionEvaluator
+import org.apache.spark.ml.tuning._
+
+scala> val df = spark.read
+     |   .option("header", "true")
+     |   .option("inferSchema", "true")
+     |   .csv("auto-mpg.csv")
+val df: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 7 more fields]
+
+scala> val data = df
+     |   .withColumnRenamed("model year", "model_year")
+     |   .withColumnRenamed("car name", "car_name")
+val data: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 7 more fields]
+
+scala> println("Total Records: " + data.count())
+     | 
+     | println("Total Columns: " + data.columns.length)
+     | 
+     | data.printSchema()
+     | 
+     | data.show(10, false)
+Total Records: 398
+Total Columns: 9
+root
+ |-- mpg: double (nullable = true)
+ |-- cylinders: integer (nullable = true)
+ |-- displacement: double (nullable = true)
+ |-- horsepower: string (nullable = true)
+ |-- weight: integer (nullable = true)
+ |-- acceleration: double (nullable = true)
+ |-- model_year: integer (nullable = true)
+ |-- origin: integer (nullable = true)
+ |-- car_name: string (nullable = true)
+
++----+---------+------------+----------+------+------------+----------+------+-------------------------+
+|mpg |cylinders|displacement|horsepower|weight|acceleration|model_year|origin|car_name                 |
++----+---------+------------+----------+------+------------+----------+------+-------------------------+
+|18.0|8        |307.0       |130       |3504  |12.0        |70        |1     |chevrolet chevelle malibu|
+|15.0|8        |350.0       |165       |3693  |11.5        |70        |1     |buick skylark 320        |
+|18.0|8        |318.0       |150       |3436  |11.0        |70        |1     |plymouth satellite       |
+|16.0|8        |304.0       |150       |3433  |12.0        |70        |1     |amc rebel sst            |
+|17.0|8        |302.0       |140       |3449  |10.5        |70        |1     |ford torino              |
+|15.0|8        |429.0       |198       |4341  |10.0        |70        |1     |ford galaxie 500         |
+|14.0|8        |454.0       |220       |4354  |9.0         |70        |1     |chevrolet impala         |
+|14.0|8        |440.0       |215       |4312  |8.5         |70        |1     |plymouth fury iii        |
+|14.0|8        |455.0       |225       |4425  |10.0        |70        |1     |pontiac catalina         |
+|15.0|8        |390.0       |190       |3850  |8.5         |70        |1     |amc ambassador dpl       |
++----+---------+------------+----------+------+------------+----------+------+-------------------------+
+only showing top 10 rows
+
+scala> data.select(
+     |   data.columns.map(c =>
+     |     sum(when(col(c).isNull, 1).otherwise(0)).alias(c)
+     |   ): _*
+     | ).show()
+warning: 1 deprecation (since 2.13.0); for details, enable `:setting -deprecation` or `:replay -deprecation`
++---+---------+------------+----------+------+------------+----------+------+--------+
+|mpg|cylinders|displacement|horsepower|weight|acceleration|model_year|origin|car_name|
++---+---------+------------+----------+------+------------+----------+------+--------+
+|  0|        0|           0|         0|     0|           0|         0|     0|       0|
++---+---------+------------+----------+------+------------+----------+------+--------+
+
+
+scala> data.filter(
+     |   trim(col("horsepower")) === "?"
+     | ).show(false)
++----+---------+------------+----------+------+------------+----------+------+--------------------+
+|mpg |cylinders|displacement|horsepower|weight|acceleration|model_year|origin|car_name            |
++----+---------+------------+----------+------+------------+----------+------+--------------------+
+|25.0|4        |98.0        |?         |2046  |19.0        |71        |1     |ford pinto          |
+|21.0|6        |200.0       |?         |2875  |17.0        |74        |1     |ford maverick       |
+|40.9|4        |85.0        |?         |1835  |17.3        |80        |2     |renault lecar deluxe|
+|23.6|4        |140.0       |?         |2905  |14.3        |80        |1     |ford mustang cobra  |
+|34.5|4        |100.0       |?         |2320  |15.8        |81        |2     |renault 18i         |
+|23.0|4        |151.0       |?         |3035  |20.5        |82        |1     |amc concord dl      |
++----+---------+------------+----------+------+------------+----------+------+--------------------+
+
+
+scala> val totalRecords = data.count()
+     | 
+     | val uniqueRecords = data.dropDuplicates().count()
+     | 
+     | println("Duplicate Records: " +
+     |   (totalRecords - uniqueRecords))
+Duplicate Records: 0
+val totalRecords: Long = 398
+val uniqueRecords: Long = 398
+
+scala> data.groupBy("cylinders")
+     |   .count()
+     |   .orderBy("cylinders")
+     |   .show()
++---------+-----+
+|cylinders|count|
++---------+-----+
+|        3|    4|
+|        4|  204|
+|        5|    3|
+|        6|   84|
+|        8|  103|
++---------+-----+
+
+
+scala> data.groupBy("origin")
+     |   .count()
+     |   .orderBy("origin")
+     |   .show()
++------+-----+
+|origin|count|
++------+-----+
+|     1|  249|
+|     2|   70|
+|     3|   79|
++------+-----+
+
+
+scala> val cleaned = data.withColumn(
+     |   "horsepower",
+     |   when(
+     |     trim(col("horsepower").cast("string")) === "?",
+     |     lit(null).cast(DoubleType)
+     |   ).otherwise(col("horsepower").cast(DoubleType))
+     | )
+val cleaned: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 7 more fields]
+
+scala> val windowSpec = Window.partitionBy("cylinders")
+     | 
+     | val imputed = cleaned
+     |   .withColumn(
+     |     "median_hp",
+     |     expr("percentile_approx(horsepower, 0.5)")
+     |       .over(windowSpec)
+     |   )
+     |   .withColumn(
+     |     "horsepower",
+     |     coalesce(col("horsepower"), col("median_hp"))
+     |   )
+     |   .drop("median_hp")
+val windowSpec: org.apache.spark.sql.expressions.WindowSpec = org.apache.spark.sql.expressions.WindowSpec@1dd73be7
+val imputed: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 7 more fields]
+
+scala> imputed.filter(col("horsepower").isNull).count()
+val res6: Long = 0
+
+scala> val featured = imputed.withColumn(
+     |   "weight_category",
+     |   when(col("weight") < 2500, "Compact")
+     |     .when(col("weight") < 3500, "Midsize")
+     |     .otherwise("Heavy")
+     | )
+val featured: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 8 more fields]
+
+scala> val finalData = featured.withColumn(
+     |   "origin_name",
+     |   when(col("origin") === 1, "USA")
+     |     .when(col("origin") === 2, "Europe")
+     |     .otherwise("Japan")
+     | )
+val finalData: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 9 more fields]
+
+scala> finalData.select(
+     |   "mpg",
+     |   "cylinders",
+     |   "horsepower",
+     |   "weight",
+     |   "origin_name",
+     |   "weight_category"
+     | ).show(10, false)
++----+---------+----------+------+-----------+---------------+
+|mpg |cylinders|horsepower|weight|origin_name|weight_category|
++----+---------+----------+------+-----------+---------------+
+|19.0|3        |97.0      |2330  |Japan      |Compact        |
+|18.0|3        |90.0      |2124  |Japan      |Compact        |
+|21.5|3        |110.0     |2720  |Japan      |Midsize        |
+|23.7|3        |100.0     |2420  |Japan      |Compact        |
+|24.0|4        |95.0      |2372  |Japan      |Compact        |
+|27.0|4        |88.0      |2130  |Japan      |Compact        |
+|26.0|4        |46.0      |1835  |Europe     |Compact        |
+|25.0|4        |87.0      |2672  |Europe     |Midsize        |
+|24.0|4        |90.0      |2430  |Europe     |Compact        |
+|25.0|4        |95.0      |2375  |Europe     |Compact        |
++----+---------+----------+------+-----------+---------------+
+only showing top 10 rows
+
+scala> val Array(trainData, testData) =
+     |   finalData.randomSplit(Array(0.8, 0.2), 42)
+     | 
+     | println("Training Records: " + trainData.count())
+     | println("Testing Records: " + testData.count())
+Training Records: 340
+Testing Records: 58
+val trainData: org.apache.spark.sql.Dataset[org.apache.spark.sql.Row] = [mpg: double, cylinders: int ... 9 more fields]
+val testData: org.apache.spark.sql.Dataset[org.apache.spark.sql.Row] = [mpg: double, cylinders: int ... 9 more fields]
+
+scala> val indexer = new StringIndexer()
+     |   .setInputCol("origin_name")
+     |   .setOutputCol("origin_index")
+     |   .setHandleInvalid("error")
+val indexer: org.apache.spark.ml.feature.StringIndexer = strIdx_8c8c0a98abb7
+
+scala> val encoder = new OneHotEncoder()
+     |   .setInputCol("origin_index")
+     |   .setOutputCol("origin_ohe")
+     |   .setDropLast(true)
+val encoder: org.apache.spark.ml.feature.OneHotEncoder = oneHotEncoder_df863d3a4a0d
+
+scala> val assembler = new VectorAssembler()
+     |   .setInputCols(Array(
+     |     "cylinders",
+     |     "displacement",
+     |     "horsepower",
+     |     "weight",
+     |     "acceleration",
+     |     "model_year",
+     |     "origin_ohe"
+     |   ))
+     |   .setOutputCol("raw_features")
+val assembler: org.apache.spark.ml.feature.VectorAssembler = VectorAssembler: uid=vecAssembler_926286330975, handleInvalid=error, numInputCols=7
+
+scala> val scaler = new StandardScaler()
+     |   .setInputCol("raw_features")
+     |   .setOutputCol("scaled_features")
+     |   .setWithMean(true)
+     |   .setWithStd(true)
+val scaler: org.apache.spark.ml.feature.StandardScaler = stdScal_84f9402194d7
+
+scala> val pipeline = new Pipeline()
+     |   .setStages(Array(
+     |     indexer,
+     |     encoder,
+     |     assembler,
+     |     scaler
+     |   ))
+val pipeline: org.apache.spark.ml.Pipeline = pipeline_f9fe9207a32f
+
+scala> val pipelineModel = pipeline.fit(trainData)
+     | 
+     | val trainProcessed =
+     |   pipelineModel.transform(trainData)
+     | 
+     | val testProcessed =
+     |   pipelineModel.transform(testData)
+val pipelineModel: org.apache.spark.ml.PipelineModel = pipeline_f9fe9207a32f
+val trainProcessed: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 13 more fields]
+val testProcessed: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 13 more fields]
+
+scala> trainProcessed.select(
+     |   "mpg",
+     |   "raw_features",
+     |   "scaled_features"
+     | ).show(5, false)
++----+------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|mpg |raw_features                              |scaled_features                                                                                                                                              |
++----+------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|9.0 |[8.0,304.0,193.0,4732.0,18.5,70.0,1.0,0.0]|[1.5189254764441826,1.1132451284672846,2.39991680584145,2.108887794652037,1.033633867979135,-1.6436424466138557,0.7807536407604101,-0.4992641644283645]      |
+|10.0|[8.0,307.0,200.0,4376.0,15.0,70.0,1.0,0.0]|[1.5189254764441826,1.1425671522251866,2.5863029046472144,1.6882209851624166,-0.23810341789263229,-1.6436424466138557,0.7807536407604101,-0.4992641644283645]|
+|11.0|[8.0,318.0,210.0,4382.0,13.5,70.0,1.0,0.0]|[1.5189254764441826,1.2500812393374936,2.852568760084021,1.6953108752099946,-0.7831336832662469,-1.6436424466138557,0.7807536407604101,-0.4992641644283645]  |
+|11.0|[8.0,350.0,180.0,3664.0,11.0,73.0,1.0,0.0]|[1.5189254764441826,1.5628494927551142,2.053771193773602,0.8468873661831762,-1.6915174588889377,-0.8313772840430654,0.7807536407604101,-0.4992641644283645]  |
+|11.0|[8.0,400.0,150.0,4997.0,14.0,73.0,1.0,0.0]|[1.5189254764441826,2.051549888720146,1.2549736274631826,2.422024605086726,-0.6014569281417087,-0.8313772840430654,0.7807536407604101,-0.4992641644283645]   |
++----+------------------------------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------+
+only showing top 5 rows
+
+scala> val lr = new LinearRegression()
+     |   .setFeaturesCol("scaled_features")
+     |   .setLabelCol("mpg")
+     |   .setMaxIter(100)
+     |   .setRegParam(0.0)
+     |   .setStandardization(false)
+val lr: org.apache.spark.ml.regression.LinearRegression = linReg_2cc704549631
+
+scala> val lrModel = lr.fit(trainProcessed)
+26/11/10 21:48:14 WARN SparkStringUtils: Truncated the string representation of a plan since it was too large. This behavior can be adjusted by setting 'spark.sql.debug.maxToStringFields'.
+26/11/10 21:48:15 WARN Instrumentation: [6e61681d] regParam is zero, which might cause numerical instability and overfitting.
+val lrModel: org.apache.spark.ml.regression.LinearRegressionModel = LinearRegressionModel: uid=linReg_2cc704549631, numFeatures=8
+
+scala> val lrPredictions =
+     |   lrModel.transform(testProcessed)
+val lrPredictions: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 14 more fields]
+
+scala> lrPredictions.select(
+     |   "mpg",
+     |   "prediction"
+     | ).show(20, false)
++----+------------------+
+|mpg |prediction        |
++----+------------------+
+|10.0|6.963273730794363 |
+|11.0|9.774585625052254 |
+|12.0|10.55393322027555 |
+|13.0|21.118289241227323|
+|13.0|14.835272319380735|
+|13.0|11.595567964132414|
+|13.0|8.620164474428995 |
+|14.0|15.719056886626696|
+|14.0|12.053857224383645|
+|14.0|11.680575377732822|
+|14.0|10.338725373239736|
+|14.0|10.165496149558402|
+|14.0|9.677749207333957 |
+|15.0|19.710072721703785|
+|15.0|14.20881033497908 |
+|15.5|17.02237823782234 |
+|16.0|16.750819716859244|
+|17.5|22.566393104115885|
+|18.0|19.676879661707655|
+|18.0|17.201191263976796|
++----+------------------+
+only showing top 20 rows
+
+scala> println("Intercept: " + lrModel.intercept)
+     | 
+     | println("Coefficients: " + lrModel.coefficients)
+Intercept: 23.69529411764712
+Coefficients: [-0.40347784464910036,2.1753322587817863,-0.8950453729832657,-5.639993696127134,0.22933612734105988,2.8575286134309117,-1.5030150303182805,-0.12694886660079993]
+
+scala> val dt = new DecisionTreeRegressor()
+     |   .setFeaturesCol("raw_features")
+     |   .setLabelCol("mpg")
+     |   .setMaxDepth(5)
+     |   .setMinInstancesPerNode(1)
+     |   .setSeed(42)
+val dt: org.apache.spark.ml.regression.DecisionTreeRegressor = dtr_31e2669b1c6e
+
+scala> val dtModel = dt.fit(trainProcessed)
+val dtModel: org.apache.spark.ml.regression.DecisionTreeRegressionModel = DecisionTreeRegressionModel: uid=dtr_31e2669b1c6e, depth=5, numNodes=59, numFeatures=8
+
+scala> val dtPredictions =
+     |   dtModel.transform(testProcessed)
+val dtPredictions: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 14 more fields]
+
+scala> dtPredictions.select(
+     |   "mpg",
+     |   "prediction"
+     | ).show(20, false)
++----+------------------+
+|mpg |prediction        |
++----+------------------+
+|10.0|12.071428571428571|
+|11.0|12.071428571428571|
+|12.0|12.071428571428571|
+|13.0|14.920454545454545|
+|13.0|14.920454545454545|
+|13.0|14.920454545454545|
+|13.0|12.071428571428571|
+|14.0|14.920454545454545|
+|14.0|14.920454545454545|
+|14.0|12.071428571428571|
+|14.0|12.071428571428571|
+|14.0|14.920454545454545|
+|14.0|12.071428571428571|
+|15.0|16.0625           |
+|15.0|14.920454545454545|
+|15.5|18.75             |
+|16.0|16.0625           |
+|17.5|16.0625           |
+|18.0|20.140740740740743|
+|18.0|20.140740740740743|
++----+------------------+
+only showing top 20 rows
+
+scala> println(dtModel.featureImportances)
+(8,[0,1,2,3,4,5,7],[0.6389603537430972,0.041378104475277434,0.053337221085289044,0.10587035037877833,0.022609799234111917,0.13377637082450466,0.004067800258941426])
+
+scala> def evaluateModel(
+     |     predictions: org.apache.spark.sql.DataFrame,
+     |     modelName: String
+     | ): Unit = {
+     | 
+     |   val mae = new RegressionEvaluator()
+     |     .setLabelCol("mpg")
+     |     .setPredictionCol("prediction")
+     |     .setMetricName("mae")
+     |     .evaluate(predictions)
+     | 
+     |   val rmse = new RegressionEvaluator()
+     |     .setLabelCol("mpg")
+     |     .setPredictionCol("prediction")
+     |     .setMetricName("rmse")
+     |     .evaluate(predictions)
+     | 
+     |   val r2 = new RegressionEvaluator()
+     |     .setLabelCol("mpg")
+     |     .setPredictionCol("prediction")
+     |     .setMetricName("r2")
+     |     .evaluate(predictions)
+     | 
+     |   println("Model: " + modelName)
+     |   println("MAE: " + mae)
+     |   println("RMSE: " + rmse)
+     |   println("R2: " + r2)
+     | }
+def evaluateModel(predictions: org.apache.spark.sql.DataFrame, modelName: String): Unit
+
+scala> evaluateModel(lrPredictions, "Linear Regression")
+Model: Linear Regression
+MAE: 2.765531620639128
+RMSE: 3.413180022541975
+R2: 0.810730697765407
+
+scala> evaluateModel(dtPredictions, "Decision Tree")
+Model: Decision Tree
+MAE: 2.600921337810394
+RMSE: 3.7670691391533615
+R2: 0.7694479579313235
+
+scala> println("========== MODEL COMPARISON ==========")
+     | 
+     | evaluateModel(lrPredictions, "Linear Regression")
+     | 
+     | evaluateModel(dtPredictions, "Decision Tree")
+========== MODEL COMPARISON ==========
+Model: Linear Regression
+MAE: 2.765531620639128
+RMSE: 3.413180022541975
+R2: 0.810730697765407
+Model: Decision Tree
+MAE: 2.600921337810394
+RMSE: 3.7670691391533615
+R2: 0.7694479579313235
+
+scala> val deepDT = new DecisionTreeRegressor()
+     |   .setFeaturesCol("raw_features")
+     |   .setLabelCol("mpg")
+     |   .setMaxDepth(12)
+     |   .setMinInstancesPerNode(1)
+     |   .setSeed(42)
+     | 
+     | val deepModel = deepDT.fit(trainProcessed)
+     | 
+     | val deepPredictions =
+     |   deepModel.transform(testProcessed)
+     | 
+     | evaluateModel(deepPredictions, "Deep Decision Tree")
+Model: Deep Decision Tree
+MAE: 2.7511494252873567
+RMSE: 4.001892878018753
+R2: 0.7398087367428654
+val deepDT: org.apache.spark.ml.regression.DecisionTreeRegressor = dtr_e3ee3e516030
+val deepModel: org.apache.spark.ml.regression.DecisionTreeRegressionModel = DecisionTreeRegressionModel: uid=dtr_e3ee3e516030, depth=12, numNodes=523, numFeatures=8
+val deepPredictions: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 14 more fields]
+
+scala> val lrErrors = lrPredictions
+     |   .withColumn(
+     |     "absolute_error",
+     |     abs(col("mpg") - col("prediction"))
+     |   )
+     | 
+     | lrErrors.groupBy("cylinders")
+     |   .agg(
+     |     count("*").alias("Total_Cars"),
+     |     avg("mpg").alias("Average_MPG"),
+     |     avg("absolute_error").alias("MAE")
+     |   )
+     |   .orderBy("cylinders")
+     |   .show()
++---------+----------+------------------+------------------+
+|cylinders|Total_Cars|       Average_MPG|               MAE|
++---------+----------+------------------+------------------+
+|        3|         1|              19.0| 5.310311184634685|
+|        4|        26|28.834615384615386|2.4854413893920113|
+|        5|         1|              20.3|6.5148042084307995|
+|        6|        13|20.676923076923078| 2.971694904274009|
+|        8|        17|14.388235294117647|2.6660122778970314|
++---------+----------+------------------+------------------+
+
+val lrErrors: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 15 more fields]
+
+scala> val dtErrors = dtPredictions
+     |   .withColumn(
+     |     "absolute_error",
+     |     abs(col("mpg") - col("prediction"))
+     |   )
+     | 
+     | dtErrors.groupBy("cylinders")
+     |   .agg(
+     |     count("*").alias("Total_Cars"),
+     |     avg("mpg").alias("Average_MPG"),
+     |     avg("absolute_error").alias("MAE")
+     |   )
+     |   .orderBy("cylinders")
+     |   .show()
++---------+----------+------------------+------------------+
+|cylinders|Total_Cars|       Average_MPG|               MAE|
++---------+----------+------------------+------------------+
+|        3|         1|              19.0|              0.75|
+|        4|        26|28.834615384615386|2.9407906307739085|
+|        5|         1|              20.3| 5.349999999999998|
+|        6|        13|20.676923076923078|2.5316951566951564|
+|        8|        17|14.388235294117647| 2.081226126814361|
++---------+----------+------------------+------------------+
+
+val dtErrors: org.apache.spark.sql.DataFrame = [mpg: double, cylinders: int ... 15 more fields]
+
+scala> dtErrors.groupBy("weight_category")
+     |   .agg(
+     |     avg("absolute_error").alias("MAE"),
+     |     count("*").alias("Total_Cars")
+     |   )
+     |   .show()
++---------------+------------------+----------+
+|weight_category|               MAE|Total_Cars|
++---------------+------------------+----------+
+|        Compact|2.8947551434073167|        15|
+|          Heavy|1.9700216450216443|        18|
+|        Midsize| 2.878868833260137|        25|
++---------------+------------------+----------+
+
+
+scala> new java.io.File("outputs").mkdirs()
+val res21: Boolean = true
+
+scala> lrPredictions
+     |   .select("car_name", "mpg", "prediction")
+     |   .write
+     |   .mode("overwrite")
+     |   .option("header", "true")
+     |   .csv("outputs/linear_regression_predictions")
+
+scala> dtPredictions
+     |   .select("car_name", "mpg", "prediction")
+     |   .write
+     |   .mode("overwrite")
+     |   .option("header", "true")
+     |   .csv("outputs/decision_tree_predictions")
+
+scala> finalData.write
+     |   .mode("overwrite")
+     |   .option("header", "true")
+     |   .csv("outputs/cleaned_dataset")
+
+scala> val importanceDF = spark.createDataFrame(
+     |   dtModel.featureImportances.toArray.zipWithIndex.map {
+     |     case (importance, index) =>
+     |       (index, importance)
+     |   }
+     | ).toDF("Feature_Index", "Importance")
+     | 
+     | importanceDF.show()
+warning: 1 deprecation (since 2.13.0); for details, enable `:setting -deprecation` or `:replay -deprecation`
++-------------+--------------------+
+|Feature_Index|          Importance|
++-------------+--------------------+
+|            0|  0.6389603537430972|
+|            1|0.041378104475277434|
+|            2|0.053337221085289044|
+|            3| 0.10587035037877833|
+|            4|0.022609799234111917|
+|            5| 0.13377637082450466|
+|            6|                 0.0|
+|            7|0.004067800258941426|
++-------------+--------------------+
+
+val importanceDF: org.apache.spark.sql.DataFrame = [Feature_Index: int, Importance: double]
+
+scala> :quit
+rohitkumardubey@Rohits-MacBook-Air-9 AutomobileFuelPrediction % ls outputs
+cleaned_dataset			decision_tree_predictions	linear_regression_predictions
+rohitkumardubey@Rohits-MacBook-Air-9 AutomobileFuelPrediction % 
